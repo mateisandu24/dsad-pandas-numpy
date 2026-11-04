@@ -1,0 +1,6 @@
+data_in/*
+!data_in/.gitkeep
+data_out/*
+!data_out/.gitkeep
+__pycache__/
+.idea/
