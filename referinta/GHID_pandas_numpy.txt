@@ -1,0 +1,632 @@
+================================================================================
+GHID: PANDAS / NUMPY IN STILUL SEMINARULUI (DSAD) - PENTRU UN AI CARE TREBUIE SA INVETE
+================================================================================
+
+CUM SA FOLOSESTI ACEST FISIER (instructiune pentru AI)
+-------------------------------------------------------
+Studentul rezolva subiecte de tip "date statistice pe localitati/judete/regiuni din
+Romania" in Python, cu pandas si numpy. Fisierul contine:
+  A. Stilul de scris si conventiile (de respectat cand scrii cod pentru acest student)
+  B. Retetele (tiparele) care se repeta in toate subiectele
+  C. Capcanele frecvente (greseli reale facute de student, cu corectura)
+  D. Subiecte rezolvate complet, cu enunt scurt, cod si note
+  E. Metode suplimentare din seminar (NaN, standardizare, corelatii etc.)
+
+Cand studentul iti da un enunt nou:
+  1. Identifica nivelul fiecarei cerinte: localitate, judet sau regiune.
+  2. Alege reteta din sectiunea B care se potriveste.
+  3. Scrie codul in stilul din sectiunea A, cerinta cu cerinta, cu comentariu "# Cerinta N".
+  4. Explica pe scurt ce face fiecare linie (studentul invata, nu doar copiaza).
+  5. Spune la final ce rezultat trebuie sa vada (numar de randuri, primul rand) ca sa se poata verifica.
+
+Date reale folosite: ~3181 de localitati, 42 de judete (incl. Bucuresti), 8 regiuni.
+Cheia de legatura intre tabele: codul Siruta (indexul tabelelor).
+
+Marcaje: [RULAT] = codul a fost rulat si comparat cu rezultatele corecte.
+         [NERULAT] = scris dupa acelasi tipar, dar nerulat pe datele reale.
+
+
+================================================================================
+A. STILUL DE SCRIS (seminar)
+================================================================================
+- Limba: comentarii si nume in romana, fara diacritice ("Cerinta", "Judet", "Populatie").
+- Importuri standard:
+      import pandas as pd
+      import numpy as np
+  (in seminar se foloseste si:  from numpy.ma.extras import average )
+- Prefixe de nume: df_ pentru DataFrame, s_ pentru Series. Exemple: df_industrie, s_cerinta3,
+  df_cerinta5. In rezolvari scurte: c1, c2, ... pentru rezultatele cerintelor.
+- Fiecare cerinta incepe cu un comentariu:  # Cerinta 1   (sau  # 1 )
+- Fisierele se citesc cu  index_col=0  (codul Siruta devine index):
+      df = pd.read_csv("data_in/Industrie.csv", index_col=0)
+- Lista coloanelor numerice:
+      activitati = list(df.columns.values)[1:]      # toate coloanele fara prima (text)
+- Se prefera  apply(...)  cu  lambda  pentru functii scurte, si  def  pentru functii mai lungi
+  (de ex. calcul_medie).
+- Rezultatele se salveaza in  data_out/  cu  .to_csv("data_out/CerintaN.csv")  sau
+  OutputN.csv, exact cum cere enuntul.
+- Antetul coloanelor trebuie sa fie IDENTIC cu exemplul din enunt (majuscule, spatii, "/").
+- La salvare se rotunjeste doar daca enuntul cere:  .round(3).to_csv(...)
+- Se da nume coloanei unui Series inainte de salvare:  s.name = "Rata Ocuparii"
+- Dupa fiecare merge se verifica  .shape  (3181 randuri pentru localitati).
+
+
+================================================================================
+B. RETETELE (tiparele care se repeta)
+================================================================================
+Regula centrala: NIVELUL cerintei decide pasii.
+  "pentru fiecare localitate" -> fara groupby, lucrezi pe randuri
+  "pentru fiecare judet"      -> merge populatie, groupby("Judet")
+  "pentru fiecare regiune"    -> merge populatie, merge Coduri_Judete, groupby("Regiune")
+
+--- B1. Incarcare ---------------------------------------------------------------
+    df  = pd.read_csv("data_in/X.csv", index_col=0)
+    pop = pd.read_csv("data_in/PopulatieLocalitati.csv", index_col=0)   # coloane: Localitate, Judet, Populatie
+    reg = pd.read_csv("data_in/Coduri_Judete.csv", index_col=0)         # index = indicativ judet, coloana Regiune
+  ATENTIE: pop trebuie citit mereu cu index_col=0, altfel merge-urile se lipesc dupa pozitie.
+
+--- B2. Filtru cu masca booleana, coloana noua, sortare --------------------------
+    df_f = df[df["NrSal"] > 0]                         # pastreaza randurile unde conditia e True
+    c1 = df_f[["DenLocalitate"]].copy()
+    c1["Raport"] = df_f["TotalCifraAfaceri"] / df_f["NrSal"]
+    c1 = c1.sort_values(by="Raport", ascending=False)  # descrescator
+  - df["c"] da Series; df[["c"]] da DataFrame (doar DataFrame-ul are merge).
+  - .copy() evita avertismentul SettingWithCopy.
+  - sort_values NU modifica pe loc: trebuie asignat  c1 = c1.sort_values(...).
+
+--- B3. Suma pe rand si pe coloana ------------------------------------------------
+    df.iloc[:, 1:].sum(axis=1)     # un total pe localitate (rand), coloane de la a doua incolo
+    df.sum()                       # un total pe coloana
+  - iloc[:, 1:] = toate randurile, coloanele de la pozitia 1 incolo (numerotarea incepe de la 0).
+  - df[1:] taie RANDURI, nu coloane.
+  - axis=1: de-a lungul randului (o valoare per rand). axis=0 (implicit): in jos pe coloana.
+
+--- B4. Merge (join dupa index) ---------------------------------------------------
+    m = df.merge(pop[["Judet", "Populatie"]], left_index=True, right_index=True)
+  - Lipeste tabelele dupa Siruta (indexul). Inner join implicit.
+  - Dupa un merge ordinea randurilor este cea a tabelului din STANGA.
+  - Daca coloana de legatura nu e index: left_on="Judet", right_index=True. Exemplu regiune:
+        m = m.merge(reg["Regiune"], left_on="Judet", right_index=True)
+  - Daca ai deja Localitate in df nu mai ai nevoie de pop pentru nume:
+        c = df[["Localitate"]].copy(); c["Valoare"] = s      # aliniere automata dupa index
+
+--- B5. Groupby + sum, apoi raport (judet / regiune) ------------------------------
+    jud = m[["NrSal", "Judet", "Populatie"]].groupby(by="Judet").sum()
+    rata = jud["NrSal"] * 1000 / jud["Populatie"]
+    rata.name = "Rata Ocuparii"
+    rata.sort_values(ascending=False).to_csv("data_out/Output2.csv")
+  - Selectezi inainte DOAR coloanele numerice + cheia de grupare.
+  - Mai intai ADUNI pe grup, apoi IMPARTI. Nu faci media rapoartelor pe localitati.
+
+--- B6. Maximul pe grup (numele localitatii) -------------------------------------
+    s = (m[["DenLocalitate", "Judet", "Profit/loc"]]
+         .groupby(by="Judet")
+         .apply(lambda g: g["DenLocalitate"].iloc[g["Profit/loc"].argmax()],
+                include_groups=False))
+    s.name = "Localitate"
+  - argmax() = POZITIA maximului; .iloc[pozitie] aduce valoarea de la acea pozitie.
+  - idxmax() = ETICHETA (indexul) maximului. Pe un tabel pe judete, dominanta se obtine cu
+        x.index[x.argmax()]   sau   df.idxmax(axis=1)     (numele coloanei)
+  - include_groups=False scoate coloana de grupare din tabelul primit de functie.
+
+--- B7. Coloana dominanta pe rand ---------------------------------------------------
+    df.iloc[:, 1:].idxmax(axis=1)       # numele coloanei cu valoarea maxima pe fiecare rand
+  - NU include coloana text (Localitate) in idxmax.
+  - Randurile cu toate valorile 0 returneaza prima coloana: filtreaza-le inainte
+        df_f = df[df.iloc[:, 1:].sum(axis=1) > 0]
+
+--- B8. Media ponderata pe grup ---------------------------------------------------
+  Varianta cu numpy (stilul seminarului). Ponderea (Populatie) trebuie sa fie ULTIMA coloana:
+    def calcul_medie(df):
+        x = df.values
+        medii = average(x[:, :-1], axis=0, weights=x[:, -1])      # np.average e echivalent
+        return pd.Series(medii, df.columns[:-1])
+
+    res = (m[indicatori + ["Judet", "Populatie"]]
+           .groupby(by="Judet")
+           .apply(calcul_medie, include_groups=False))
+  Varianta cu lambda (fara def, nu conteaza ordinea coloanelor):
+    res = (m[indicatori + ["Judet", "Populatie"]]
+           .groupby(by="Judet")
+           .apply(lambda x: x[indicatori].multiply(x["Populatie"], axis=0).sum() / x["Populatie"].sum(),
+                  include_groups=False))
+  Formula: suma(valoare * pondere) / suma(pondere). Ambele variante dau acelasi rezultat.
+  Returnand un pd.Series din functie, pandas construieste un rand pe grup.
+
+--- B9. Procente pe rand (ponderea unei activitati in total pe localitate) -------
+    s_total = df[activitati].apply(lambda x: x.sum(), axis=1)
+    df["Total"] = s_total
+    c2 = df[activitati + ["Total"]].apply(lambda x: x[activitati] * 100 / x["Total"], axis=1)
+    c2.insert(0, "Localitate", df["Localitate"])
+  - Randurile cu total 0 dau NaN (0/0). Pentru 0 in loc de NaN: .fillna(0).
+  - axis=1 = pe rand (ponderea in interiorul localitatii). axis=0 ar da ponderea din totalul national.
+
+--- B10. Format lung -> lat (pivot) -------------------------------------------------
+    df = pd.read_csv("data_in/Innoptari.csv")                      # Siruta, Ani ("Anul 2001"), Valoare
+    df["Ani"] = df["Ani"].str.replace("Anul ", "").astype(int)
+    c1 = df.pivot_table(index="Siruta", columns="Ani", values="Valoare")
+  Ani devin coloane (int), Siruta devine index.
+
+--- B11. Filtru "fara lipsuri" / "doar nenule" -----------------------------------
+    c1.notna().all(axis=1)                 # True pe randurile fara NaN
+    c2 = c1[c1.notna().all(axis=1)]
+    df.iloc[:, 1:].sum(axis=1) > 0         # localitati cu cel putin o valoare nenula
+    df.isna().sum()                        # cate NaN pe coloana (diagnostic)
+  all() = "toate valorile", any() = "cel putin una".
+
+--- B12. Rata la 1000 de locuitori pe grup si pe ani ------------------------------
+    m   = c1.merge(pop[["Judet", "Populatie"]], left_index=True, right_index=True)
+    jud = m.groupby("Judet").sum()
+    c5  = jud.drop(columns="Populatie").mul(1000).div(jud["Populatie"], axis=0)
+  - drop(columns="Populatie") scoate populatia din tabelul cu ani.
+  - div(..., axis=0) imparte fiecare RAND la populatia lui (axis=0 = potrivire dupa rand).
+
+--- B13. Coeficient de variatie pe regiune, pe ani --------------------------------
+    anii = list(c1.columns)
+    g  = mr.groupby("Regiune")[anii]
+    c6 = g.std() / g.mean()                # abaterea standard de selectie (ddof=1) / media
+
+--- B14. Total pe an --------------------------------------------------------------
+    s7 = c1.sum()                          # suma pe coloane = un total pe an
+    s7.name = "Total"; s7.index.name = "Anul"
+
+--- B15. Numele primei coloane la salvare ---------------------------------------
+    c.index.name = "Siruta"
+    c.to_csv("f.csv")                      # sau: c.to_csv("f.csv", index_label="Siruta")
+
+
+================================================================================
+C. CAPCANE FRECVENTE (greseli reale, cu corectura)
+================================================================================
+1. merge care da rezultate gresite fara eroare: pop citit FARA index_col=0 -> pandas leaga
+   dupa pozitie (0,1,2,..) si numele localitatilor se amesteca (ex. 1017 apare ca "Brates"
+   in loc de "Municipiul Alba Iulia"). Verificare: print(pop.head()); un rand cunoscut:
+   1017 = Municipiul Alba Iulia.
+2. KeyError: None of [Index(['Judet,Populatie'])]: s-a scris  pop[["Judet,Populatie"]]  (un
+   singur sir). Corect:  pop[["Judet", "Populatie"]].
+3. AttributeError: 'Series' object has no attribute 'merge': s-a scris pop["Localitate"]
+   (Series). Corect: pop[["Localitate"]] (DataFrame).
+4. Paranteza lipsa la o expresie pe mai multe randuri (PyCharm: "Unexpected expression syntax").
+   Daca expresia incepe cu  x = (  trebuie inchisa si ea.
+5. df[1:] in loc de df.iloc[:, 1:]: primul taie randuri, al doilea coloane.
+6. df.iloc[mask]: iloc vrea pozitii. Pentru masca booleana:  df[mask]  sau  df.loc[mask].
+7. sum() fara axis=1 cand vrei total pe localitate: da total pe coloana.
+8. idxmax pe un tabel care contine si coloana text: foloseste df.iloc[:, 1:].idxmax(axis=1).
+9. sort_values fara asignare: c = c.sort_values(...), apoi to_csv(c).
+10. inf / NaN prin impartire la 0 apar primele la sortarea descrescatoare. Filtru:
+        c = c[np.isfinite(c["Coloana"])]
+11. Ordinea randurilor din rezultat: dupa merge, ordinea e cea a tabelului din stanga. Daca
+    exemplul din enunt pastreaza ordinea fisierului initial, pornesti de la df, nu de la pop.
+12. Indicativele de judet pot fi cu majuscule intr-un fisier (PopulatieLocalitati: AB) si
+    cu litere mici in altul (Coduri_Judete: ab). Un merge direct pierde toate randurile:
+        reg.index = reg.index.str.upper()      # sau  pop["Judet"].str.lower()
+13. Antet diferit de enunt: "Rata ocuparii" in loc de "Rata Ocuparii".
+14. Calea fisierelor: "data_in/12014.csv" (nu doar "12014.csv") daca fisierele sunt in data_in/.
+    Folderul data_out/ trebuie sa existe, altfel to_csv da eroare.
+
+
+================================================================================
+D. SUBIECTE REZOLVATE
+================================================================================
+
+--------------------------------------------------------------------------------
+D1. SUBIECTUL S1_1085  (fisier 12014.csv)  [RULAT, comparat cu rezultatele corecte]
+--------------------------------------------------------------------------------
+Date: 12014.csv = Siruta, DenLocalitate, NrFirme, NrSal, TotalCifraAfaceri, TotalProfit,
+      TotalPierdere (firme in 2014, pe localitate).
+      PopulatieLocalitati.csv = Siruta, Localitate, Judet, Populatie.
+Cerinte:
+ 1. (2p) Output1.csv: raport cifra de afaceri / numar salariati pe localitate unde exista
+    salariati, descrescator. Coloane: Siruta, DenLocalitate, Raport CA/NrSal.
+ 2. (2p) Output2.csv: rata ocuparii = salariati la 1000 de locuitori, pe judet, descrescator.
+    Coloane: Judet, Rata Ocuparii.
+ 3. (2p) Output3.csv: pentru fiecare judet, localitatea cu cel mai mare profit pe locuitor.
+    Coloane: Judet, Localitate.
+ 4. (3p) Output4.csv: media ponderata (pondere = populatia) a celor 5 indicatori pe judet.
+    Coloane: Judet, NrFirme, NrSal, TotalCifraAfaceri, TotalProfit, TotalPierdere.
+ (+1 punct din oficiu)
+
+Solutie:
+
+    import pandas as pd
+    import numpy as np
+
+    df_firme = pd.read_csv("data_in/12014.csv", index_col=0)
+    df_pop = pd.read_csv("data_in/PopulatieLocalitati.csv", index_col=0)
+
+    # Cerinta 1
+    df_sal = df_firme[df_firme["NrSal"] > 0]
+    c1 = df_sal[["DenLocalitate"]].copy()
+    c1["Raport CA/NrSal"] = df_sal["TotalCifraAfaceri"] / df_sal["NrSal"]
+    c1 = c1.sort_values(by="Raport CA/NrSal", ascending=False)
+    c1.round(3).to_csv("data_out/Output1.csv")
+
+    # Cerinta 2
+    df_loc = df_firme.merge(df_pop[["Judet", "Populatie"]], left_index=True, right_index=True)
+    df_jud = df_loc[["NrSal", "Judet", "Populatie"]].groupby(by="Judet").sum()
+    s2 = df_jud["NrSal"] * 1000 / df_jud["Populatie"]
+    s2.name = "Rata Ocuparii"
+    s2.sort_values(ascending=False).to_csv("data_out/Output2.csv")
+
+    # Cerinta 3
+    df_loc["Profit/loc"] = df_loc["TotalProfit"] / df_loc["Populatie"]
+    s3 = (df_loc[["DenLocalitate", "Judet", "Profit/loc"]]
+          .groupby(by="Judet")
+          .apply(lambda g: g["DenLocalitate"].iloc[g["Profit/loc"].argmax()], include_groups=False))
+    s3.name = "Localitate"
+    s3.to_csv("data_out/Output3.csv")
+
+    # Cerinta 4
+    indicatori = ["NrFirme", "NrSal", "TotalCifraAfaceri", "TotalProfit", "TotalPierdere"]
+    c4 = (df_loc[indicatori + ["Judet", "Populatie"]]
+          .groupby(by="Judet")
+          .apply(lambda x: x[indicatori].multiply(x["Populatie"], axis=0).sum() / x["Populatie"].sum(),
+                 include_groups=False))
+    c4.round(3).to_csv("data_out/Output4.csv")
+
+Rezultate de control (set de date de practica): Output1 are 2749 de randuri, Output2/3/4 au
+cate 42 de randuri (cate unul per judet).
+
+
+--------------------------------------------------------------------------------
+D2. SEMINAR 3 - IndustriaAlimentara.csv (5 cerinte)  [RULAT pe date, acelasi cod]
+--------------------------------------------------------------------------------
+Date: IndustriaAlimentara.csv = Siruta, Localitate, Carne, Peste, LegumeFructe, Uleiuri,
+      Lactate, Morarit, Panificatie. PopulatieLocalitati.csv, Coduri_Judete.csv
+      (IndicativJudet, NumeJudet, Regiune).
+Cerinte:
+ 1. Localitatile cu cel putin o firma.
+ 2. Ponderea (%) fiecarei activitati in total pe localitate.
+ 3. Numarul de firme / locuitor pe judet, descrescator.
+ 4. Activitatea dominanta pe judet.
+ 5. Media ponderata (pondere = populatia) a activitatilor pe regiune.
+
+Solutie:
+
+    import pandas as pd
+    from numpy.ma.extras import average
+
+    pd.set_option("display.max_columns", None)
+    df_industria_a = pd.read_csv("data_in/IndustriaAlimentara.csv", index_col=0)
+    activitati = list(df_industria_a.columns.values)[1:]
+
+    # 1
+    s_total_loc = df_industria_a[activitati].apply(func=lambda x: x.sum(), axis=1)
+    s_total_loc.name = "Total"
+    df_cerinta1 = df_industria_a[s_total_loc != 0]
+    df_cerinta1.to_csv("data_out/Cerinta1.csv")
+
+    # 2
+    df_industria_a["Total"] = s_total_loc
+    df_cerinta2 = df_industria_a[activitati + ["Total"]].apply(
+        func=lambda x: x[activitati] * 100 / x["Total"], axis=1)
+    df_cerinta2.insert(0, "Localitate", df_industria_a["Localitate"])
+    df_cerinta2.to_csv("data_out/Cerinta2.csv")
+
+    # 3
+    df_populatie = pd.read_csv("data_in/PopulatieLocalitati.csv", index_col=0)
+    df_industria_a_loc = df_industria_a.merge(df_populatie, left_index=True, right_index=True)
+    df_industria_a_jud = df_industria_a_loc[activitati + ["Total", "Judet", "Populatie"]].groupby(by="Judet").sum()
+    s_cerinta3 = df_industria_a_jud["Total"] / df_industria_a_jud["Populatie"]
+    s_cerinta3.name = "Pondere"
+    s_cerinta3.sort_values(ascending=False).to_csv("data_out/Cerinta3.csv")
+
+    # 4
+    s_cerinta4 = df_industria_a_jud[activitati].apply(
+        func=lambda x: x.index[x.argmax()], axis=1)
+    s_cerinta4.name = "Activitate"
+    s_cerinta4.to_csv("data_out/Cerinta4.csv")
+
+    # 5
+    def calcul_medie(df: pd.DataFrame):
+        x = df.values
+        medii = average(x[:, :-1], axis=0, weights=x[:, -1])
+        return pd.Series(medii, df.columns[:-1])
+
+    df_coduri = pd.read_csv("data_in/Coduri_Judete.csv", index_col=0)
+    df_industria_a_loc_reg = df_industria_a_loc.merge(
+        df_coduri, left_on="Judet", right_index=True)
+    df_cerinta5 = df_industria_a_loc_reg[activitati + ["Populatie", "Regiune"]].groupby(by="Regiune").apply(
+        func=lambda x: calcul_medie(x), include_groups=False)
+    df_cerinta5.to_csv("data_out/Cerinta5.csv")
+
+Note: localitatile cu total 0 dau NaN la cerinta 2 (0/0). Daca Judet din populatie e cu
+majuscule si Coduri_Judete cu litere mici: df_industria_a_loc["Judet"] =
+df_industria_a_loc["Judet"].str.lower() inainte de ultimul merge.
+
+
+--------------------------------------------------------------------------------
+D3. Industrie.csv (9 industrii) - aceleasi 5 cerinte  [RULAT]
+--------------------------------------------------------------------------------
+Date: Industrie.csv = Siruta, Localitate, Alimentara, Textila, Lemnului, ChimicaFarmaceutica,
+      Metalurgica, ConstructiiMasini, CalculatoareElectronica, Mobila, Energetica.
+      (valorile sunt sume de bani - cifra de afaceri, nu numar de firme).
+Codul este cel de la D2 cu "Industrie.csv" in loc de "IndustriaAlimentara.csv" si cu linia:
+      df_populatie["Judet"] = df_populatie["Judet"].str.lower()     # AB -> ab
+(PopulatieLocalitati are aici judetele cu majuscule, Coduri_Judete cu litere mici.)
+Rezultate: cerinta 1 = 2317 localitati; cerinta 3: ag, b, tm in frunte; 8 regiuni la cerinta 5.
+
+
+--------------------------------------------------------------------------------
+D4. Industrie.csv - cerinte lucrate de student (cifra de afaceri)
+--------------------------------------------------------------------------------
+Cerinte (extrase):
+ 1. Output1.csv: cifra de afaceri totala pe localitate (suma pe toate activitatile), in ordinea
+    din fisier.
+ 2. Output2.csv: cifra de afaceri pe locuitor, descrescator.
+    Coloane: Siruta, Localitate, CF/Loc.
+ 3. Output3.csv: activitatea dominanta pe localitate (doar localitatile cu activitate).
+
+Solutie [partea cu iloc / sum(axis=1) / merge: RULATA conceptual; codul exact: NERULAT]:
+
+    df = pd.read_csv("data_in/Industrie.csv", index_col=0)
+    pop = pd.read_csv("data_in/PopulatieLocalitati.csv", index_col=0)
+
+    # 1
+    s = df.iloc[:, 1:].sum(axis=1)                     # coloanele numerice, suma pe rand
+    c1 = df[["Localitate"]].copy()
+    c1["Cifra de afaceri"] = s
+    c1.to_csv("Output1.csv")
+
+    # 2
+    c2 = df[["Localitate"]].copy()
+    c2["CF/Loc"] = s / pop["Populatie"]                # aliniere dupa Siruta
+    c2 = c2.sort_values(by="CF/Loc", ascending=False)
+    c2.to_csv("Output2.csv")
+
+    # 3
+    filtrate = df.iloc[:, 1:].sum(axis=1) > 0
+    df_f = df[filtrate]
+    c3 = df_f[["Localitate"]].copy()
+    c3["Activitate"] = df_f.iloc[:, 1:].idxmax(axis=1)
+    c3.to_csv("Output3.csv")
+
+
+--------------------------------------------------------------------------------
+D5. INNOPTARI.csv (6 cerinte, cu pivot)  [cerintele 1-4: cod lucrat de student;
+    5 si 6 rulate pe un set cu aceeasi structura (Firme.csv)]
+--------------------------------------------------------------------------------
+Date: Innoptari.csv (format lung) = Siruta, Ani ("Anul 2001"...), Valoare (nr. innoptari).
+      PopulatieLocalitati.csv, Coduri_Judete.csv.
+Cerinte:
+ 1. Cerinta1.csv: innoptarile pe localitate, fiecare an o coloana, antetul = anul in cifre.
+ 2. Cerinta2.csv: localitatile cu innoptari in toti anii (aceeasi structura ca la 1).
+ 3. Cerinta3.csv: pentru fiecare localitate, anul cu cele mai multe innoptari
+    (Siruta, Localitate, Anul).
+ 4. Cerinta4.csv: totalul innoptarilor la 1000 de locuitori pe localitate
+    (Siruta, Localitate, Innoptari_1000).
+ 5. Cerinta5.csv: innoptari la 1000 de locuitori, pe fiecare an, pe judet (rotunjit 2 zecimale).
+ 6. Cerinta6.csv: coeficientii de variatie pe regiune, pe ani, pornind de la valorile pe localitate.
+
+Solutie:
+
+    import pandas as pd
+    import numpy as np
+
+    # Cerinta 1
+    df = pd.read_csv("data_in/Innoptari.csv")
+    df["Ani"] = df["Ani"].str.replace("Anul ", "").astype(int)
+    c1 = df.pivot_table(index="Siruta", columns="Ani", values="Valoare")
+    c1.to_csv("Cerinta1.csv")
+    anii = list(c1.columns)
+
+    # Cerinta 2
+    c2 = c1[c1.notna().all(axis=1)]
+    c2.to_csv("Cerinta2.csv")
+
+    # Cerinta 3
+    pop = pd.read_csv("data_in/PopulatieLocalitati.csv", index_col=0)     # index_col=0 OBLIGATORIU
+    s3 = c1.idxmax(axis=1)                                                # anul = numele coloanei
+    s3.name = "Anul"
+    c3 = pop[["Localitate"]].merge(s3, left_index=True, right_index=True)
+    c3.index.name = "Siruta"
+    c3.to_csv("Cerinta3.csv")
+
+    # Cerinta 4
+    suma = c1.sum(axis=1) * 1000 / pop["Populatie"]
+    suma.name = "Innoptari_1000"
+    c4 = pop[["Localitate"]].merge(suma, left_index=True, right_index=True)
+    c4 = c4[c4.notna().all(axis=1)]
+    c4.to_csv("Cerinta4.csv")
+
+    # Cerinta 5
+    m = c1.merge(pop[["Judet", "Populatie"]], left_index=True, right_index=True)
+    jud = m.groupby("Judet").sum()
+    c5 = jud.drop(columns="Populatie").mul(1000).div(jud["Populatie"], axis=0)
+    c5.round(2).to_csv("Cerinta5.csv")
+
+    # Cerinta 6
+    reg = pd.read_csv("data_in/Coduri_Judete.csv", index_col=0)
+    pop_l = pop.copy()
+    pop_l["Judet"] = pop_l["Judet"].str.lower()
+    mr = c1.merge(pop_l[["Judet"]], left_index=True, right_index=True)
+    mr = mr.merge(reg["Regiune"], left_on="Judet", right_index=True)
+    g = mr.groupby("Regiune")[anii]
+    c6 = g.std() / g.mean()
+    c6.to_csv("Cerinta6.csv")
+
+Cerinta 2: "date in toti anii" = fara NaN. Daca enuntul cere si > 0:
+    c1[(c1.notna() & (c1 > 0)).all(axis=1)]
+
+
+--------------------------------------------------------------------------------
+D6. TEST GENERAT "AGRICULTURA" (stil S1_1085)  [RULAT]
+--------------------------------------------------------------------------------
+Date: Agricultura.csv = Siruta, DenLocalitate, NrExploatatii, SuprafataHa, ProductieTone,
+      Subventii, Cheltuieli. PopulatieLocalitati.csv (Judet cu MAJUSCULE),
+      Coduri_Judete.csv (indicativ cu litere MICI).
+Cerinte:
+ 1. (2p) Output1.csv: randament = productie / suprafata, doar unde suprafata > 0,
+    descrescator, 3 zecimale. Coloane: Siruta, DenLocalitate, Randament.
+ 2. (2p) Output2.csv: exploatatii la 1000 de locuitori pe REGIUNE, descrescator.
+    Coloane: Regiune, Densitate.
+ 3. (2p) Output3.csv: pe judet, localitatea cu cea mai mare productie pe locuitor.
+ 4. (3p) Output4.csv: media ponderata (pondere populatia) a celor 5 indicatori pe judet,
+    3 zecimale.
+
+Solutie:
+
+    import pandas as pd
+    import numpy as np
+
+    df_agri = pd.read_csv("data_in/Agricultura.csv", index_col=0)
+    df_pop = pd.read_csv("data_in/PopulatieLocalitati.csv", index_col=0)
+    df_reg = pd.read_csv("data_in/Coduri_Judete.csv", index_col=0)
+
+    # Cerinta 1
+    df_ag = df_agri[df_agri["SuprafataHa"] > 0].copy()
+    df_ag["Randament"] = df_ag["ProductieTone"] / df_ag["SuprafataHa"]
+    df_c1 = df_ag[["DenLocalitate", "Randament"]].sort_values(by="Randament", ascending=False)
+    df_c1.round(3).to_csv("data_out/Output1.csv")
+
+    # Cerinta 2 (capcana: majuscule vs litere mici)
+    df_reg.index = df_reg.index.str.upper()
+    df_loc = df_agri.merge(df_pop[["Judet", "Populatie"]], left_index=True, right_index=True)
+    df_loc_reg = df_loc.merge(df_reg["Regiune"], left_on="Judet", right_index=True)
+    df_regiuni = df_loc_reg[["NrExploatatii", "Populatie", "Regiune"]].groupby(by="Regiune").sum()
+    s_c2 = df_regiuni["NrExploatatii"] * 1000 / df_regiuni["Populatie"]
+    s_c2.name = "Densitate"
+    s_c2.sort_values(ascending=False).to_csv("data_out/Output2.csv")
+
+    # Cerinta 3
+    df_loc["Productie/loc"] = df_loc["ProductieTone"] / df_loc["Populatie"]
+    s_c3 = (df_loc[["DenLocalitate", "Judet", "Productie/loc"]]
+            .groupby(by="Judet")
+            .apply(lambda g: g["DenLocalitate"].iloc[g["Productie/loc"].argmax()], include_groups=False))
+    s_c3.name = "Localitate"
+    s_c3.to_csv("data_out/Output3.csv")
+
+    # Cerinta 4
+    indicatori = ["NrExploatatii", "SuprafataHa", "ProductieTone", "Subventii", "Cheltuieli"]
+    df_c4 = (df_loc[indicatori + ["Judet", "Populatie"]]
+             .groupby(by="Judet")
+             .apply(lambda x: x[indicatori].multiply(x["Populatie"], axis=0).sum() / x["Populatie"].sum(),
+                    include_groups=False))
+    df_c4.round(3).to_csv("data_out/Output4.csv")
+
+Rezultate de control: Output1 = 2972 randuri, Output2 = 8, Output3 = 42, Output4 = 42.
+
+
+--------------------------------------------------------------------------------
+D7. TEST GENERAT "FIRME PE ANI" (format lung, 8 cerinte)  [RULAT]
+--------------------------------------------------------------------------------
+Date: Firme.csv = Siruta, Ani ("Anul 2010".."Anul 2017"), Valoare (nr. firme active;
+      pentru unele localitati lipsesc ani). Populatie (Judet MAJUSCULE), Coduri_Judete (litere mici).
+Cerinte: 1 pivot; 2 localitati fara ani lipsa; 3 anul cu maximul; 4 firme la 1000 locuitori
+ pe localitate; 5 firme la 1000 locuitori pe an, pe judet (2 zecimale); 6 coeficient de variatie
+ pe regiune si an; 7 total firme pe an; 8 media ponderata (populatie) pe regiune si an, doar
+ pentru localitatile din cerinta 2 (3 zecimale).
+Cerintele 1-6 sunt ca la D5. Restul:
+
+    # Cerinta 7
+    s7 = c1.sum()                      # suma pe coloane = total pe an
+    s7.name = "Total"
+    s7.index.name = "Anul"
+    s7.to_csv("Cerinta7.csv")
+
+    # Cerinta 8
+    m2 = c2.merge(pop_l[["Judet", "Populatie"]], left_index=True, right_index=True)
+    m2 = m2.merge(reg["Regiune"], left_on="Judet", right_index=True)
+    c8 = m2[anii + ["Populatie", "Regiune"]].groupby(by="Regiune").apply(
+        lambda x: x[anii].multiply(x["Populatie"], axis=0).sum() / x["Populatie"].sum(),
+        include_groups=False)
+    c8.round(3).to_csv("Cerinta8.csv")
+
+
+================================================================================
+E. METODE SUPLIMENTARE DIN SEMINAR
+================================================================================
+
+--- E1. Seminar 1: natalitate (pivot, NaN, covarianta, corelatie, standardizare) ---
+    import sys
+    import pandas as pd
+    import numpy as np
+
+    t = pd.read_csv("data_in/Natalitate_Ro.csv")     # Judete, Localitati, Ani, UM, Valoare
+    df = t.pivot_table(index="Judete", columns="Ani", values="Valoare")
+    variabile = list(df)
+    x = df[variabile].values
+
+    def nan_replace(x):
+        y = x.copy()
+        k = np.where(np.isnan(y))
+        y[k] = np.nanmean(y[:, k[1]], axis=0)        # NaN -> media coloanei
+        return y
+
+    def standardize(x, scal=True, ddof=0):
+        x_ = x - np.mean(x, axis=0)
+        if scal:
+            x_ = x_ / np.std(x_, axis=0, ddof=ddof)
+        return x_
+
+    x = nan_replace(x)
+    v = np.cov(x, rowvar=False)                      # covarianta intre coloane (ani)
+    r = np.corrcoef(x, rowvar=False)                 # corelatii intre coloane
+    pd.DataFrame(v, variabile, variabile).to_csv("data_out/V.csv")
+    pd.DataFrame(r, variabile, variabile).to_csv("data_out/R.csv")
+    pd.DataFrame(standardize(x), df.index, variabile).to_csv("data_out/x_std.csv")
+  - rowvar=False: coloanele sunt variabilele.
+  - np.std are ddof=0 implicit; np.cov are ddof=1. De aceea standardize are parametrul ddof.
+
+--- E2. Seminar 2: etnii (NaN in DataFrame, sume pe judet/regiune, procente, indice) ---
+    from pandas.api.types import is_numeric_dtype
+
+    def nan_replace_df(df):
+        for c in df.columns:
+            if df[c].isna().any():
+                if is_numeric_dtype(df[c]):
+                    df.fillna({c: df[c].mean()}, inplace=True)       # numeric: media
+                else:
+                    df.fillna({c: df[c].mode()[0]}, inplace=True)    # text: valoarea cea mai frecventa
+
+    df = pd.read_csv("data_in/Ethnicity.csv", index_col=0)           # Code, City, Romanian, Hungarians, ...
+    nan_replace_df(df)
+    etnii = list(df)[1:]
+    df_coduri_loc = pd.read_csv("data_in/Coduri_Localitati.csv", index_col=0)    # City, County
+    df_etnii_loc = df.merge(df_coduri_loc, left_index=True, right_index=True)
+    df_etnii_jud = df_etnii_loc[etnii + ["County"]].groupby(by="County").sum()   # pe judet
+    df_coduri_jud = pd.read_csv("data_in/Coduri_Judete.csv", index_col=0)
+    df_etnii_jud_ = df_etnii_jud.merge(df_coduri_jud, left_index=True, right_on="IndicativJudet")
+    df_etnii_reg = df_etnii_jud_[etnii + ["Regiune"]].groupby(by="Regiune").sum()  # pe regiune
+
+    # procente pe rand (fiecare etnie in total pe localitate / judet)
+    df_etnii_loc_p = df[etnii].apply(func=lambda x: x * 100 / x.sum(), axis=1)
+    df_etnii_jud_p = df_etnii_jud[etnii].apply(func=lambda x: x * 100 / x.sum(), axis=1)
+
+    # indicele de disimilaritate pe judet (calcul numpy)
+    def disimilaritate(df):
+        x = df.values
+        tx = np.sum(x, axis=0)             # total pe etnie
+        tx[tx == 0] = 1                    # evita impartirea la 0
+        sx = np.sum(x, axis=1)             # total pe localitate
+        r = (sx - x.T).T                   # restul populatiei din fiecare localitate
+        tr = np.sum(r, axis=0)
+        d = 0.5 * np.sum(np.abs(x / tx - r / tr), axis=0)
+        return pd.Series(d, df.columns)
+
+    df_dis = df_etnii_loc[etnii + ["County"]].groupby(by="County").apply(
+        func=disimilaritate, include_groups=False)
+
+--- E3. Alte fisiere de date disponibile (pentru exercitii noi) ---------------------
+  Religious.csv      : Code, City, Orthodox, Roman_Catholic, Reformed, ... (22 religii pe localitate)
+  Ethnicity.csv      : Code, City, Romanian, Hungarians, Romany, ... (22 etnii pe localitate)
+  prezenta_vot.csv   : Siruta, Localitate, Mediu (U/R), Votanti_LP, Votanti_LS, LP, LS, LSC, UM, LT,
+                       Barbati_18-24 ... Barbati_65_, Femei_18-24 ... Femei_65_
+  Teritorial_2022.csv: 42 judete x 35 indicatori (RN, RM, Emigranti, PIB, Export, ...), cu cateva
+                       valori lipsa (VolumeB - Calarasi, SalariatiC - Caras-Severin, PIB - Mehedinti).
+  Coduri_Regiuni.csv : Regiune, MacroRegiune (8 regiuni).
+
+
+================================================================================
+F. LISTA DE VERIFICARE INAINTE SA PREDAI UN SUBIECT
+================================================================================
+[ ] Fisierele sunt citite cu index_col=0 (inclusiv PopulatieLocalitati.csv).
+[ ] Calea e corecta ("data_in/..."), iar folderul data_out/ exista.
+[ ] Dupa fiecare merge: .shape are 3181 randuri (sau numarul asteptat).
+[ ] Un rand cunoscut e corect: Siruta 1017 = Municipiul Alba Iulia.
+[ ] Antetul fiecarei coloane e identic cu exemplul din enunt.
+[ ] Sortarea e asignata (c = c.sort_values(...)) si e cea ceruta (descrescator).
+[ ] Rotunjirea e facuta doar cand e ceruta, doar la salvare.
+[ ] Indicativele de judet au aceeasi forma (majuscule/litere mici) in ambele tabele.
+[ ] Randurile cu 0 / NaN / inf au fost tratate cum cere enuntul.
+[ ] Fiecare cerinta scrie in fisierul cu numele cerut (Output1.csv, Cerinta1.csv, ...).
